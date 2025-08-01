@@ -1,5 +1,3 @@
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.338/pdf.worker.min.js';
-
 let images = [];
 let currentMode = null;
 let currentPage = 0;
@@ -27,6 +25,8 @@ const fileBrowser = document.getElementById('file-browser');
 const backBrowser = document.getElementById('back-browser');
 const closeBrowser = document.getElementById('close-browser');
 const fileList = document.getElementById('file-list');
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.338/pdf.worker.min.js';
 
 themeToggle.innerHTML = moonSVG;
 fullscreenToggle.innerHTML = fullscreenSVG;
@@ -74,8 +74,10 @@ function loadContents(path) {
                         e.preventDefault();
                         if (item.type === 'dir') {
                             loadContents(item.path);
-                        } else if (item.type === 'file') {
-                            loadFile(item.download_url, item.name.endsWith('.pdf') ? 'pdf' : 'zip');
+                        } else if (item.name.endsWith('.zip')) {
+                            loadZip(item.download_url);
+                        } else if (item.name.endsWith('.pdf')) {
+                            loadPdf(item.download_url);
                         }
                     };
                     li.appendChild(a);
@@ -90,29 +92,38 @@ function naturalCompare(a, b) {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-async function loadFile(url, type) {
-    if (type === 'zip') {
-        const res = await fetch(url);
-        const blob = await res.blob();
-        const zip = await JSZip.loadAsync(blob);
-        const entries = [];
-        zip.forEach((relPath, entry) => {
-            if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
-                entries.push({ relPath, entry });
-            }
-        });
-        entries.sort((a, b) => naturalCompare(a.relPath, b.relPath));
-        const promises = entries.map(({ entry }) => entry.async('blob').then(b => URL.createObjectURL(b)));
-        images = await Promise.all(promises);
-        fileBrowser.style.display = 'none';
-    } else if (type === 'pdf') {
-        const loadingTask = pdfjsLib.getDocument(url);
-        const pdf = await loadingTask.promise;
+function loadZip(url) {
+    fetch(url)
+        .then(res => res.blob())
+        .then(blob => JSZip.loadAsync(blob))
+        .then(zip => {
+            const entries = [];
+            zip.forEach((relPath, entry) => {
+                if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
+                    entries.push({ relPath, entry });
+                }
+            });
+            entries.sort((a, b) => naturalCompare(a.relPath, b.relPath));
+            const promises = entries.map(({ entry }) => entry.async('blob').then(b => URL.createObjectURL(b)));
+            return Promise.all(promises);
+        })
+        .then(urls => {
+            images = urls;
+            fileBrowser.style.display = 'none';
+        })
+        .catch(err => console.error(err));
+}
+
+async function loadPdf(url) {
+    try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         const numPages = pdf.numPages;
         const urls = [];
-        for (let i = 1; i <= numPages; i++) {
-            const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: 1.5 });
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 }); // Adjust scale for quality
             const canvas = document.createElement('canvas');
             canvas.height = viewport.height;
             canvas.width = viewport.width;
@@ -121,10 +132,12 @@ async function loadFile(url, type) {
                 viewport: viewport
             };
             await page.render(renderContext).promise;
-            urls.push(canvas.toDataURL());
+            urls.push(canvas.toDataURL('image/png'));
         }
         images = urls;
         fileBrowser.style.display = 'none';
+    } catch (err) {
+        console.error(err);
     }
 }
 

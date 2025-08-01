@@ -1,3 +1,5 @@
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.338/pdf.worker.min.js';
+
 let images = [];
 let currentMode = null;
 let currentPage = 0;
@@ -63,20 +65,22 @@ function loadContents(path) {
             fileList.innerHTML = '';
             if (!Array.isArray(data)) data = [data];
             data.forEach(item => {
-                const li = document.createElement('li');
-                const a = document.createElement('a');
-                a.textContent = item.name + (item.type === 'dir' ? '/' : '');
-                a.href = '#';
-                a.onclick = (e) => {
-                    e.preventDefault();
-                    if (item.type === 'dir') {
-                        loadContents(item.path);
-                    } else if (item.type === 'file' && item.name.endsWith('.zip')) {
-                        loadZip(item.download_url);
-                    }
-                };
-                li.appendChild(a);
-                fileList.appendChild(li);
+                if (item.type === 'dir' || (item.type === 'file' && (item.name.endsWith('.zip') || item.name.endsWith('.pdf')))) {
+                    const li = document.createElement('li');
+                    const a = document.createElement('a');
+                    a.textContent = item.name + (item.type === 'dir' ? '/' : '');
+                    a.href = '#';
+                    a.onclick = (e) => {
+                        e.preventDefault();
+                        if (item.type === 'dir') {
+                            loadContents(item.path);
+                        } else if (item.type === 'file') {
+                            loadFile(item.download_url, item.name.endsWith('.pdf') ? 'pdf' : 'zip');
+                        }
+                    };
+                    li.appendChild(a);
+                    fileList.appendChild(li);
+                }
             });
         })
         .catch(err => console.error(err));
@@ -86,26 +90,42 @@ function naturalCompare(a, b) {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-function loadZip(url) {
-    fetch(url)
-        .then(res => res.blob())
-        .then(blob => JSZip.loadAsync(blob))
-        .then(zip => {
-            const entries = [];
-            zip.forEach((relPath, entry) => {
-                if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
-                    entries.push({ relPath, entry });
-                }
-            });
-            entries.sort((a, b) => naturalCompare(a.relPath, b.relPath));
-            const promises = entries.map(({ entry }) => entry.async('blob').then(b => URL.createObjectURL(b)));
-            return Promise.all(promises);
-        })
-        .then(urls => {
-            images = urls;
-            fileBrowser.style.display = 'none';
-        })
-        .catch(err => console.error(err));
+async function loadFile(url, type) {
+    if (type === 'zip') {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const zip = await JSZip.loadAsync(blob);
+        const entries = [];
+        zip.forEach((relPath, entry) => {
+            if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
+                entries.push({ relPath, entry });
+            }
+        });
+        entries.sort((a, b) => naturalCompare(a.relPath, b.relPath));
+        const promises = entries.map(({ entry }) => entry.async('blob').then(b => URL.createObjectURL(b)));
+        images = await Promise.all(promises);
+        fileBrowser.style.display = 'none';
+    } else if (type === 'pdf') {
+        const loadingTask = pdfjsLib.getDocument(url);
+        const pdf = await loadingTask.promise;
+        const numPages = pdf.numPages;
+        const urls = [];
+        for (let i = 1; i <= numPages; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            const renderContext = {
+                canvasContext: canvas.getContext('2d'),
+                viewport: viewport
+            };
+            await page.render(renderContext).promise;
+            urls.push(canvas.toDataURL());
+        }
+        images = urls;
+        fileBrowser.style.display = 'none';
+    }
 }
 
 document.getElementById('contents-page').addEventListener('click', () => {

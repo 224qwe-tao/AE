@@ -82,17 +82,23 @@ function loadContents(path) {
         .catch(err => console.error(err));
 }
 
+function naturalCompare(a, b) {
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
 function loadZip(url) {
     fetch(url)
         .then(res => res.blob())
         .then(blob => JSZip.loadAsync(blob))
         .then(zip => {
-            const promises = [];
+            const entries = [];
             zip.forEach((relPath, entry) => {
                 if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
-                    promises.push(entry.async('blob').then(b => URL.createObjectURL(b)));
+                    entries.push({ relPath, entry });
                 }
             });
+            entries.sort((a, b) => naturalCompare(a.relPath, b.relPath));
+            const promises = entries.map(({ entry }) => entry.async('blob').then(b => URL.createObjectURL(b)));
             return Promise.all(promises);
         })
         .then(urls => {
@@ -103,7 +109,7 @@ function loadZip(url) {
 }
 
 document.getElementById('contents-page').addEventListener('click', () => {
-    fileBrowser.style.display = 'block';
+    fileBrowser.style.display = 'flex';
     loadContents('AEF');
 });
 

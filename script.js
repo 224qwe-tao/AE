@@ -22,7 +22,7 @@ const fullscreenToggle = document.getElementById('fullscreen-toggle');
 const fitToPage = document.getElementById('fit-to-page');
 const header = document.querySelector('header');
 const fileBrowser = document.getElementById('file-browser');
-const loadCurrent = document.getElementById('load-current');
+const backBrowser = document.getElementById('back-browser');
 const closeBrowser = document.getElementById('close-browser');
 const fileList = document.getElementById('file-list');
 
@@ -41,8 +41,13 @@ function getGitHubRepoInfo() {
     return { owner, repo };
 }
 
-function isImage(filename) {
-    return /\.(jpg|jpeg|png|gif|webp)$/i.test(filename);
+function getParentPath(path) {
+    const parts = path.split('/');
+    if (parts.length > 1) {
+        parts.pop();
+        return parts.join('/');
+    }
+    return 'AEF';
 }
 
 function loadContents(path) {
@@ -57,15 +62,18 @@ function loadContents(path) {
         .then(data => {
             fileList.innerHTML = '';
             if (!Array.isArray(data)) data = [data];
-            const zipItems = data.filter(item => item.type === 'file' && item.name.endsWith('.zip'));
-            zipItems.forEach(item => {
+            data.forEach(item => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
-                a.textContent = item.name;
+                a.textContent = item.name + (item.type === 'dir' ? '/' : '');
                 a.href = '#';
                 a.onclick = (e) => {
                     e.preventDefault();
-                    loadZip(item.download_url);
+                    if (item.type === 'dir') {
+                        loadContents(item.path);
+                    } else if (item.type === 'file' && item.name.endsWith('.zip')) {
+                        loadZip(item.download_url);
+                    }
                 };
                 li.appendChild(a);
                 fileList.appendChild(li);
@@ -81,7 +89,7 @@ function loadZip(url) {
         .then(zip => {
             const promises = [];
             zip.forEach((relPath, entry) => {
-                if (!entry.dir && isImage(relPath)) {
+                if (!entry.dir && /\.(jpg|jpeg|png|gif|webp)$/i.test(relPath)) {
                     promises.push(entry.async('blob').then(b => URL.createObjectURL(b)));
                 }
             });
@@ -99,9 +107,11 @@ document.getElementById('contents-page').addEventListener('click', () => {
     loadContents('AEF');
 });
 
-loadCurrent.addEventListener('click', () => {
-    fileBrowser.style.display = 'none';
-    // Since only zips are listed, loading current not needed, or adjust if subfolders
+backBrowser.addEventListener('click', () => {
+    const parent = getParentPath(currentPath);
+    if (parent !== currentPath) {
+        loadContents(parent);
+    }
 });
 
 closeBrowser.addEventListener('click', () => {

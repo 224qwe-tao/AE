@@ -33,7 +33,7 @@ fitToPage.innerHTML = fitToPageSVG;
 function getGitHubRepoInfo() {
     const host = window.location.host;
     if (!host.endsWith('github.io')) {
-        return null;
+        return { owner: 'YOUR_USERNAME', repo: 'AE' }; // Replace 'YOUR_USERNAME' with actual GitHub username
     }
     const owner = host.split('.')[0];
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -48,10 +48,6 @@ function isImage(filename) {
 function loadContents(path) {
     currentPath = path;
     const info = getGitHubRepoInfo();
-    if (!info) {
-        alert('This application must be hosted on GitHub Pages.');
-        return;
-    }
     const apiUrl = `https://api.github.com/repos/${info.owner}/${info.repo}/contents/${path}?ref=main`;
     fetch(apiUrl)
         .then(res => {
@@ -60,24 +56,16 @@ function loadContents(path) {
         })
         .then(data => {
             fileList.innerHTML = '';
-            if (!Array.isArray(data)) data = [data]; // if single file
-            data.forEach(item => {
+            if (!Array.isArray(data)) data = [data];
+            const zipItems = data.filter(item => item.type === 'file' && item.name.endsWith('.zip'));
+            zipItems.forEach(item => {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
                 a.textContent = item.name;
                 a.href = '#';
                 a.onclick = (e) => {
                     e.preventDefault();
-                    if (item.type === 'dir') {
-                        loadContents(item.path);
-                    } else if (item.type === 'file') {
-                        if (item.name.endsWith('.zip')) {
-                            loadZip(item.download_url);
-                        } else if (isImage(item.name)) {
-                            images = [item.download_url];
-                            fileBrowser.style.display = 'none';
-                        }
-                    }
+                    loadZip(item.download_url);
                 };
                 li.appendChild(a);
                 fileList.appendChild(li);
@@ -112,17 +100,8 @@ document.getElementById('contents-page').addEventListener('click', () => {
 });
 
 loadCurrent.addEventListener('click', () => {
-    const info = getGitHubRepoInfo();
-    if (!info) return;
-    const apiUrl = `https://api.github.com/repos/${info.owner}/${info.repo}/contents/${currentPath}?ref=main`;
-    fetch(apiUrl)
-        .then(res => res.json())
-        .then(data => {
-            const imageItems = data.filter(item => item.type === 'file' && isImage(item.name));
-            images = imageItems.map(item => item.download_url);
-            fileBrowser.style.display = 'none';
-        })
-        .catch(err => console.error(err));
+    fileBrowser.style.display = 'none';
+    // Since only zips are listed, loading current not needed, or adjust if subfolders
 });
 
 closeBrowser.addEventListener('click', () => {
